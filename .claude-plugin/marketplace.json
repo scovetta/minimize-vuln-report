@@ -1,0 +1,32 @@
+{
+  "name": "minimize-vuln-report",
+  "owner": {
+    "name": "Michael Scovetta"
+  },
+  "metadata": {
+    "description": "Condense vulnerability writeups into minimal reports"
+  },
+  "plugins": [
+    {
+      "name": "minimize-vuln-report",
+      "source": "./",
+      "description": "Condense any vulnerability writeup (advisories, bounty and pentest reports, SAST/SARIF, fuzzer crashes, AI-generated findings, Scrutineer bundles, pasted text) into a minimal report: a short issue description, a minimal proof of concept, and a minimal patch, verified in a Docker container.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Michael Scovetta"
+      },
+      "license": "MIT",
+      "category": "security",
+      "keywords": [
+        "security",
+        "vulnerability",
+        "disclosure",
+        "poc",
+        "patch",
+        "advisory",
+        "triage",
+        "scrutineer"
+      ]
+    }
+  ]
+}
