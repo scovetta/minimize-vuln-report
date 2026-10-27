@@ -36,6 +36,7 @@ scrutineer-finding-<id>-disclosure-<date>.tar.gz
 ## GitHub Security Advisory (GHSA) / OSV record / CVE page
 
 - **Fetch structured data first**: `https://api.osv.dev/v1/vulns/<ID>` returns JSON for GHSA, CVE and other OSV IDs. `gh api /advisories/<GHSA-ID>` returns GitHub's record.
+- **Draft or private repository advisory**: neither of those has it, because both cover published advisories only. That is the usual case for an unfixed bug filed through private vulnerability reporting. Read it with `gh api /repos/<o>/<r>/security-advisories/<GHSA-ID>`, which needs access to the repository's advisories. Its `private_fork`, if set, is a temporary private fork that may hold the fix. The bug is under embargo, so keep its details out of anything public, such as issues, PRs and web searches.
 - **Facts**: `summary`/`details`, or the advisory body. Affected ranges come from `affected[].ranges` / `versions`, or the "Affected versions" field.
 - **PoC**: often absent, or vague ("a crafted input can..."). Look at the `references` for a report, issue, or test added by the fix. The fix's regression test is frequently the best PoC seed, because it contains a triggering input.
 - **Patch**: references of type `FIX`, or links to commits/PRs. In OSV, a `GIT` range's `fixed` event is the fix commit. Fetch the commit diff (`https://github.com/<o>/<r>/commit/<sha>.diff`), then strip tests, changelogs and version bumps.
@@ -77,7 +78,7 @@ scrutineer-finding-<id>-disclosure-<date>.tar.gz
 
 - **Facts**: "Summary" and "Steps to reproduce" hold the substance. "Impact" sections are usually inflated, so state the concrete effect the steps actually demonstrate. Pentest reports (often PDF) give each finding its own heading; take one finding at a time.
 - **PoC**: the steps to reproduce, reduced to the single request or call that triggers it.
-  - Strip auth/session setup that isn't needed for the bug. If the attacker must be logged in, say so in the description.
+  - Strip auth/session setup that isn't needed for the bug. If the attacker must be logged in, say so in the description, and keep the auth header with a placeholder (`Authorization: Bearer <token>`), never the reporter's real token or cookie.
   - Replace out-of-band callbacks with a local listener.
   - Replace production hosts with a local instance, and never send requests to the live target. If there is no local instance (closed-source services), keep the reported request with the host replaced by a placeholder like `https://target.example`, and say in the reply that it was not run.
 - **Patch**: rarely supplied. Write it against the open-source code if it is available. If the target is closed-source, leave the Patch section out and say so in the reply.
