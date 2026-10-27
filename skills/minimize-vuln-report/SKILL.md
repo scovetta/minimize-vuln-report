@@ -52,7 +52,7 @@ Check every file path, line number, function name and quoted line against the re
 **PoC.** Start from whatever reproducer the source validated. If the source has none, for example a static-analysis hit or an advisory without one, build it from the data-flow trace. That PoC is your claim, so verify it (see below).
 
 **Patch.** Use, in order of preference: an upstream fix commit, a supplied diff, or a diff you write from the fix suggestion and the source. Make it against the tree it will be applied to:
-- for an unfixed bug, the current development branch, since that is where the maintainer will apply it
+- for an unfixed bug, the current development branch, since that is where the maintainer will apply it. A bug reported against a release may already be fixed there, so run the PoC against that branch before you write the patch. If it no longer triggers, find the fixing commit and treat the bug as fixed upstream.
 - for a bug already fixed upstream, the latest affected release
 
 An upstream fix may not apply to the release at all, because it touches files that were never released or is tangled with a refactor. In that case, write the equivalent minimal change against the release and say so in the reply.
@@ -82,16 +82,17 @@ Leave out severity scores and adjectives, CVSS vectors, CWE prose, amplification
 - Skip outer layers (web frameworks, network harnesses, fake servers, exploit frameworks, browser automation) whenever the trace shows the attacker value reaches an inner public API unmodified. Keep a layer only when the bug cannot be triggered without it. The description, not the PoC, says who can reach it.
 - Use one triggering input, not a sweep. If one root cause has several effects (e.g. code execution and SSRF through the same lookup table), demonstrate the most severe one and name the others in the description. If the effect depends on the environment (a crash on a default stack, a CPU burn on a large one), demonstrate what a default environment shows.
 - Drop sweeps, timing loops, logging, argument parsing, retries, and try/catch that only exists to print something. When the effect is time itself, time one call and put the elapsed time in `Result:`. Use idioms that shrink input construction (`"x".repeat(n)`, `"A"*n`).
+- Races are the exception to dropping loops. A race (TOCTOU, a use-after-free between threads) can need many tries to hit. Keep one bounded loop around the racing operations, stop at the first hit, and put the hit rate you saw in `Result:` (e.g. "hit within 2 s in 10 of 10 runs").
 - Make the payload harmless and observable: create a marker file, print a value, or read a file you created. Replace reverse shells, deletions, downloads and out-of-band callbacks (Burp Collaborator, interactsh) with one of those, or with a local listener. It proves the same thing, and the maintainer can run it safely.
 - Keep the imports or qualified names needed for it to run.
 
 Under the code block, add the list items below. Together they must say where the code under test comes from:
-- for a published release, install that version (`pip install pkg==2.4.0`)
+- for a published release, install that version
 - for unpublished code, use a checkout of the affected version (`git checkout v0.3.1`), which the maintainer already has
 
 The items:
-- `Setup:` only when the PoC needs something beyond the affected package and a stock toolchain. Examples: building the project or its harness from a checkout (`make CC=clang fuzz`), a script engine the JDK no longer ships, or a non-default flag or config setting. Make it a command where possible, with explicit file lists rather than globs the tool won't expand.
-- `Run:` the exact command. Refer to the code block as `poc.<ext>`, or whatever name the language requires (e.g. `Poc.java`). Leave out `Run:` when the code block is itself the commands, such as a `curl`, or a generator plus the binary invocation.
+- `Setup:` every command that gets, installs or builds the code under test or anything else the PoC needs, so that `Run:` works offline. Examples: installing the affected version (`python3 -m venv v && v/bin/pip install pkg==2.4.0`), checking it out (`git checkout v0.3.1`), building the project or its harness from a checkout (`make CC=clang fuzz`), a script engine the JDK no longer ships, or a non-default flag or config setting. Make it a command where possible, with explicit file lists rather than globs the tool won't expand. Leave it out only when there is nothing to get, install or build. Install Python packages into a virtualenv as shown and run with `v/bin/python`. A plain `pip install` fails on Debian- and Ubuntu-based images and hosts, which mark the system Python as externally managed.
+- `Run:` the exact command. It must not download anything; that belongs in `Setup:`. Refer to the code block as `poc.<ext>`, or whatever name the language requires (e.g. `Poc.java`). Leave out `Run:` when the code block is itself the commands, such as a `curl`, or a generator plus the binary invocation.
 - `Result:` the observable outcome, such as the crash and its frame, the leaked value, the written file, or the elapsed time. Together with the commands, that is the whole evidence.
 
 **Patch.**
@@ -104,7 +105,7 @@ The items:
 
 ## Check before you hand it over
 
-Confirm the PoC and patch by running them inside a Docker container that already has the needed toolchain. This is essential for anything you built or changed. PoCs are exploit code, so the container keeps them off the user's machine, and it avoids installing toolchains on the host.
+Confirm the PoC and patch by running them inside a Docker container that already has the needed toolchain. This is essential for anything you built or changed. PoCs are exploit code, so the container keeps them away from the user's files and network, and it avoids installing toolchains on the host.
 
 1. **Get a container.** If the user already named an image or a running container, use it. If they said they don't have one, that's the answer: skip testing without asking. Otherwise, once you know which tools the PoC needs, ask once. Offer these choices:
    - a matching local image, if `docker images` lists one whose name suggests the right toolchain
@@ -113,10 +114,26 @@ Confirm the PoC and patch by running them inside a Docker container that already
    - no container, which skips testing
 
    Treat it as "no container" if Docker isn't available, or if you can't ask (a non-interactive run).
-2. **Run the PoC.** Put the PoC and whatever it needs in a scratch directory and mount it, e.g. `docker run --rm --user "$(id -u):$(id -g)" -v "$PWD":/work -w /work <image> sh -c '...'`. Without `--user`, the container's user often can't write to the mount. For a running container, use `docker exec`, and copy files in with `docker cp`.
-   - Run the report's `Setup:`/`Run:` commands exactly as written, under a `timeout`, and confirm the `Result:`. A reader will paste those lines, so a command you paraphrased while testing doesn't count. If a line needs infrastructure you don't have, replace it with one you can run rather than shipping it untested. Lines that download something need network access in the container, which is Docker's default.
-   - Check the container's environment (`env`) for settings a reader won't have that change the outcome. Examples: `ASAN_OPTIONS=halt_on_error=0`, which lets a crashing process exit 0, or a preset `PYTHONPATH`/`CLASSPATH`. Unset them for your runs (`-e VAR=`, `env -u VAR`), or put what the PoC really needs in `Setup:`.
-3. **Check the patch.** In the same container, confirm the patch removes the effect and that a benign input still works. For example, apply it to a checkout and rerun, or compile the patched file ahead of the release jar on the classpath. If the project's tests for that file are quick, run them too. With no tests, a short fuzzing run of the patched build (for a fuzz target) or the benign-input check is enough.
+2. **Run the PoC.** Put the PoC and whatever it needs in a scratch directory. Start a container with resource limits that mounts it read-only, run `Setup:` on a copy while the container still has network access, then cut the network before anything runs the PoC:
+   ```sh
+   docker rm -f poc-<id> 2>/dev/null
+   docker run -d --name poc-<id> --memory 4g --pids-limit 1024 --security-opt no-new-privileges -v "$PWD":/src:ro <image> tail -f /dev/null
+   docker exec poc-<id> sh -c 'cp -r /src /tmp/w && cd /tmp/w && <Setup>'
+   docker network disconnect bridge poc-<id>
+   docker exec poc-<id> sh -c 'cd /tmp/w && timeout 60 <Run>'
+   ```
+   `<id>` is the report's ID from **Output**, so runs for different reports don't collide, and the first line clears a container left behind by an interrupted run. Remove the container with `docker rm -f poc-<id>` after step 3.
+   - The limits stop a memory-hungry or fork-bombing PoC from taking down the host; raise them if a build needs more. Without the network, the PoC can't reach the internet, the user's LAN or a cloud metadata service, but `localhost` inside the container still works for a local instance or listener. Reconnect (`docker network connect bridge poc-<id>`) only for a step that has to download, such as building the patched tree, and disconnect again before running the PoC.
+   - Mount only the scratch directory. Never mount the Docker socket, the user's home directory or credentials, and never pass `--privileged`.
+   - Run as the image's default user. Don't pass `--user "$(id -u)"`: it sets `HOME=/`, so tools that write under `$HOME`, such as `npm`, fail, and under rootless Docker it loses access to the mount. Working on a copy also avoids leaving root-owned files on the host, and the PoC can't change the originals. Print what you need to see, and `docker cp` out anything you need to keep.
+   - For a running container the user named, use `docker exec` and copy files in with `docker cp`. Don't change its network or limits; it's theirs.
+   - Run the report's `Setup:`/`Run:` commands exactly as written, under a `timeout`, and confirm the `Result:`. A reader will paste those lines, so a command you paraphrased while testing doesn't count. If a line needs infrastructure you don't have, replace it with one you can run rather than shipping it untested.
+   - Check the container's environment (`env`) for settings a reader won't have that change the outcome. Examples: `ASAN_OPTIONS=halt_on_error=0`, which lets a crashing process exit 0, or a preset `PYTHONPATH`/`CLASSPATH`. Unset them for your runs with `env -u VAR <command>` (`-e VAR=` only sets them to empty), or put what the PoC really needs in `Setup:`.
+3. **Check the patch.** In the same container:
+   - Run the PoC on the unpatched tree the patch targets and confirm it triggers there. Without that, the effect going away after the patch proves nothing.
+   - Apply the patch and rerun, and confirm the effect is gone. For example, apply it to a checkout, or compile the patched file ahead of the release jar on the classpath.
+   - Rerun the variants you cut from the PoC, such as the source's other payloads, and the obvious bypasses for the bug class. Examples: an absolute path, or a sibling directory that shares the prefix (`out-evil` next to `out`), for a path check; an encoded or mixed-case form for a filter; the values on either side of a new bound. The patch must stop all of them, not only the PoC's input. If one gets through, the fix is incomplete, so fix the patch.
+   - Confirm a benign input still works. If the project's tests for that file are quick, run them too. With no tests, a short fuzzing run of the patched build (for a fuzz target) or the benign-input check is enough.
 
 On the host, do only things that execute nothing from the project or the input:
 - read files
@@ -131,6 +148,7 @@ Building, installing, importing and running all happen in the container. Point P
 When a step can't be completed:
 - **No container.** Do your best without running anything. Keep the trigger input and the call exactly as the source validated them, change only the scaffolding, and build anything new carefully from the code. The host-side checks above still apply. Say in the reply that the PoC and patch are untested.
 - **It ran but didn't trigger.** Don't ship it. Fix the PoC. If the bug itself doesn't reproduce and the code doesn't confirm it either, it may not be real. Tell the user that, and why, instead of writing a report.
+- **The container can't show it.** Some bugs need a platform that a Linux container doesn't provide, such as Windows path handling (`\` separators, reserved names like `NUL`) or a case-insensitive filesystem. Write the PoC for that platform, confirm the defect from the code, name the platform in `Setup:`, and say in the reply that the PoC and patch are untested and why. The same applies to a race the code confirms but that still didn't hit after you tightened the loop.
 
 Verification is how you earn confidence; it is not part of the output, so don't add a "Verification" section.
 
@@ -156,7 +174,7 @@ Use exactly this shape:
 <minimal code or commands>
 ```
 
-- Setup: `<only if needed>`
+- Setup: `<get, install or build commands>`
 - Run: `<command>`
 - Result: <observable outcome>
 
@@ -207,7 +225,8 @@ with zipfile.ZipFile(buf, "w") as zf:
 extract_all(buf, "out")
 ```
 
-- Run: `pip install acme-archive==2.4.0 && python3 poc.py`
+- Setup: `python3 -m venv v && v/bin/pip install acme-archive==2.4.0`
+- Run: `v/bin/python poc.py`
 - Result: `pwned` is written next to `out/`, outside the extraction directory
 
 ## Patch
@@ -233,4 +252,4 @@ diff --git a/src/acme_archive/extract.py b/src/acme_archive/extract.py
 ```
 ````
 
-Notice what was cut: the Flask upload app (the archive reaches `extract_all()` unmodified), the absolute-path variant (same root cause, same fix), screenshots, CVSS, the test and changelog hunks, and the `index` line.
+Notice what was cut: the Flask upload app (the archive reaches `extract_all()` unmodified), the absolute-path variant (same root cause, same fix, and still rerun against the patch), screenshots, CVSS, the test and changelog hunks, and the `index` line.
