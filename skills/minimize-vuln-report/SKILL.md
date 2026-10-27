@@ -120,7 +120,7 @@ Confirm the PoC and patch by running them inside a Docker container that already
    docker rm -f poc-<id> 2>/dev/null
    docker run -d --name poc-<id> --memory 4g --pids-limit 1024 --security-opt no-new-privileges -v "$PWD":/src:ro <image> tail -f /dev/null
    docker exec poc-<id> sh -c 'cp -r /src /tmp/w && cd /tmp/w && <Setup>'
-   docker network disconnect bridge poc-<id>
+   docker network disconnect bridge poc-<id> &&
    docker exec poc-<id> sh -c 'cd /tmp/w && timeout 60 <Run>'
    ```
    `<id>` is the report's ID from **Output**, so runs for different reports don't collide, and the first line clears a container left behind by an interrupted run. Remove the container with `docker rm -f poc-<id>` after step 3.
