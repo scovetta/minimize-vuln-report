@@ -36,6 +36,7 @@ scrutineer-finding-<id>-disclosure-<date>.tar.gz
 ## GitHub Security Advisory (GHSA) / OSV record / CVE page
 
 - **Fetch structured data first**: `https://api.osv.dev/v1/vulns/<ID>` returns JSON for GHSA, CVE and other OSV IDs. `gh api /advisories/<GHSA-ID>` returns GitHub's record.
+- **Draft or private repository advisory**: neither of those has it, because both cover published advisories only. That is the usual case for an unfixed bug filed through private vulnerability reporting. Read it with `gh api /repos/<o>/<r>/security-advisories/<GHSA-ID>`, which needs access to the repository's advisories. Its `private_fork`, if set, is a temporary private fork that may hold the fix. The bug is under embargo, so keep its details out of anything public, such as issues, PRs and web searches.
 - **Facts**: `summary`/`details`, or the advisory body. Affected ranges come from `affected[].ranges` / `versions`, or the "Affected versions" field.
 - **PoC**: often absent, or vague ("a crafted input can..."). Look at the `references` for a report, issue, or test added by the fix. The fix's regression test is frequently the best PoC seed, because it contains a triggering input.
 - **Patch**: references of type `FIX`, or links to commits/PRs. In OSV, a `GIT` range's `fixed` event is the fix commit. Fetch the commit diff (`https://github.com/<o>/<r>/commit/<sha>.diff`), then strip tests, changelogs and version bumps.
@@ -67,7 +68,7 @@ scrutineer-finding-<id>-disclosure-<date>.tar.gz
 - **PoC**: a generator for the crashing input, plus the harness or binary invocation.
   - If the input format isn't clear from the code, minimize first to learn which bytes matter: OSS-Fuzz's "Minimized Testcase", libFuzzer's `-minimize_crash=1 -runs=10000` (writes `minimized-from-*`), or `afl-tmin`. Then write a structured generator that shows the format (length fields, magic bytes) instead of transcribing fuzzer bytes. Use `printf` or `python3 -c`, which nearly every image has.
   - Reproducing the same bug class in the same in-project frame is enough. Sizes needn't match the filed crash, though matching them helps the maintainer recognize it.
-  - Build the harness the way the project does (its fuzz build target, or `clang -g -fsanitize=fuzzer,address ...`), and put that build in `Setup:`. Check that it uses the compiler you expect: make's built-in `CC=cc` beats a Makefile's `CC ?= clang`, so pass `CC=clang` explicitly. Projects integrated into OSS-Fuzz can also use `python3 infra/helper.py build_fuzzers --sanitizer address <project>` and `python3 infra/helper.py reproduce <project> <fuzz_target> <testcase>`, which build and run everything in OSS-Fuzz's own containers. They need an oss-fuzz checkout, so ship them only if you can run them.
+  - Build the harness the way the project does (its fuzz build target, or `clang -g -fsanitize=fuzzer,address ...`), and put that build in `Setup:`. Check that it uses the compiler you expect: make's built-in `CC=cc` beats a Makefile's `CC ?= clang`, so pass `CC=clang` explicitly. Don't verify with OSS-Fuzz's `infra/helper.py`, even for a project integrated into OSS-Fuzz: it builds and runs the project in containers it starts with `--privileged`.
   - `Result:` is the error class, the access (READ/WRITE and size), and the first in-project frame. The `SUMMARY:` line often names an interceptor such as `__asan_memcpy` instead, along with build-specific paths.
   - Sanitizer options change the outcome: `ASAN_OPTIONS=halt_on_error=0` lets a crashing process continue and exit 0, and breaks `-minimize_crash`. Run with the defaults a reader would have.
 - **Patch**: the fixing commit, if linked. OSS-Fuzz issues give a fixed revision range, and the fix is in it. Otherwise write a bounds or lifetime fix where the bad value gets through.
@@ -77,7 +78,7 @@ scrutineer-finding-<id>-disclosure-<date>.tar.gz
 
 - **Facts**: "Summary" and "Steps to reproduce" hold the substance. "Impact" sections are usually inflated, so state the concrete effect the steps actually demonstrate. Pentest reports (often PDF) give each finding its own heading; take one finding at a time.
 - **PoC**: the steps to reproduce, reduced to the single request or call that triggers it.
-  - Strip auth/session setup that isn't needed for the bug. If the attacker must be logged in, say so in the description.
+  - Strip auth/session setup that isn't needed for the bug. If the attacker must be logged in, say so in the description, and keep the auth header with a placeholder (`Authorization: Bearer <token>`), never the reporter's real token or cookie.
   - Replace out-of-band callbacks with a local listener.
   - Replace production hosts with a local instance, and never send requests to the live target. If there is no local instance (closed-source services), keep the reported request with the host replaced by a placeholder like `https://target.example`, and say in the reply that it was not run.
 - **Patch**: rarely supplied. Write it against the open-source code if it is available. If the target is closed-source, leave the Patch section out and say so in the reply.
